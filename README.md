@@ -13,8 +13,8 @@ A simple Ansible playbook to:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/<your-username>/<your-repo>.git
-   cd <your-repo>
+   git clone https://github.com/Gururaj-Project/Ansible-websitecheck.git
+   cd Ansible-websitecheck
 2. Update hosts.ini
    Add the websites you want to check.
   
@@ -23,7 +23,6 @@ A simple Ansible playbook to:
 4. Add your webhook URL.
 
 5. Run the playbook
-
-bash
-Copy code
+```
 ansible-playbook -i hosts.ini website.yaml
+```
