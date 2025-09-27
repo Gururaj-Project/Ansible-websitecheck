@@ -1,0 +1,66 @@
+---
+- name: Check website availability and SSL status
+  hosts: localhost
+  gather_facts: true
+ 
+  tasks:
+
+    - name: Get websites from inventory group
+      set_fact:
+        websites: "{{ groups['websites'] | map('regex_replace', '^(.*)$', 'https://\\1') | list }}"
+
+    - name: Check website access and SSL info
+      shell: |
+        url="{{ item }}"
+        host=$(echo $url | awk -F/ '{print $3}')
+
+        curl -Is --max-time 10 "$url" >/dev/null 2>&1
+        if [ $? -ne 0 ]; then
+          echo "$url: ❌ Unreachable"
+        else
+          expire_date=$(echo | openssl s_client -servername "$host" -connect "$host:443" 2>/dev/null \
+            | openssl x509 -noout -dates | grep 'notAfter=' | cut -d= -f2)
+
+          if [ -z "$expire_date" ]; then
+            echo "$url: ✅ Reachable, ❌ SSL: Not Found"
+          else
+            expiry_ts=$(date -d "$expire_date" +%s)
+            now_ts=$(date +%s)
+            days_left=$(( (expiry_ts - now_ts) / 86400 ))
+
+            if [ $days_left -lt 0 ]; then
+              echo "$url: ✅ Reachable, ❌ SSL expired $((-1 * $days_left)) days ago"
+            else
+              echo "$url: ✅ Reachable, ✅ SSL valid, 🔒 Expires in $days_left days"
+            fi
+          fi
+        fi
+      loop: "{{ websites }}"
+      register: site_results
+      changed_when: false
+
+    - name: Set website results
+      set_fact:
+        check_results: "{{ site_results.results | map(attribute='stdout') | list }}"
+
+    - name: Format simplified website report
+      set_fact:
+        formatted_report: |
+          {% for line in check_results %}
+          {% set url, status = line.rsplit(':', 1) %}
+          {{ "%-30s" | format(url + ':') }}{{ status }}
+          {% endfor %}
+
+
+    - name: Send website status to Mattermost
+      uri:
+        url: "{{ mattermost_webhook }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body: |
+          {
+            "text": "*🌐 Website Status Report 📊 - 🕒 {{ (ansible_date_time.hour | int) % 12 if ansible_date_time.hour != '12' else 12 }}:{{ '%02d' | format(ansible_date_time.minute | int) }} {{ 'AM' if (ansible_date_time.hour | int) < 12 else 'PM' }} IST*\n```\n{{ formatted_report }}\n```"
+          }
+
